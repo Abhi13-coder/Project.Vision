@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Companion</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+        }
+
+        #video-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            overflow: hidden;
+            margin: 0 auto 20px;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #chat-container {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        #response-area {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            white-space: pre-wrap; /* Preserve line breaks */
+        }
+
+        button {
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+    </style>
+    <link rel="manifest" href="data:application/manifest+json;base64,ewogICAgIm5hbWUiOiAiQUkgQ29tcGFuaW9uIiwKICAgICJzaG9ydF9uYW1lIjogIkFJIENhbCIsCiAgICAic3RhcnRfdXJsIjogIi4iLAogICAgImRpc3BsYXkiOiAic3RhbmRhbG9uZSIKICAgICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNmZmYiLAogICAgInRoZW1lX2NvbG9yIjogIiMwMDAiLAogICAgImljb25zIjogWwogICAgICAgIHsic3JjIjoiaHR0cHM6Ly9wbGFjZWhvbGRlci5jb20vMTkyIiwKICAgICAgICAgICJzaXplcyI6ICIxOTJ4MTkyIiwKICAgICAgICAgICJ0eXBlIjogImltYWdlL3BuZyIKICAgICAgICB9CiAgICBdCn0K">
+</head>
+<body>
+    <div id="video-container">
+        <video id="webcam" autoplay playsinline width="640" height="480"></video>
+    </div>
+    <div id="chat-container">
+        <div id="response-area"></div>
+        <button id="start-voice-button">Start Voice</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const video = document.getElementById('webcam');
+            const responseArea = document.getElementById('response-area');
+            const startVoiceButton = document.getElementById('start-voice-button');
+            let model;
+            let recognition;
+            const apiKey = 'AIzaSyB0aZpI1YjeLXERCF2i6BM4mD74pEQxMZI'; // Your API Key
+            const modelName = 'gemini-2.5-flash'; // Or 'gemini-2.0-flash'
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+            async function setupCamera() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    video.srcObject = stream;
+                } catch (error) {
+                    console.error('Error accessing webcam:', error);
+                    responseArea.textContent = 'Failed to access webcam.';
+                }
+            }
+
+            async function loadModel() {
+                responseArea.textContent = 'Loading object detection model...';
+                model = await cocoSsd.load();
+                responseArea.textContent = 'Object detection model loaded.';
+                detectObjects();
+            }
+
+            async function detectObjects() {
+                if (model && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    const predictions = await model.detect(video);
+                    console.log('Predictions:', predictions);
+
+                    if (predictions.length > 0) {
+                        const detectedItems = predictions.map(p => `${p.class} (${(p.score * 100).toFixed(0)}%)`);
+                        const visualContext = `The camera sees: ${detectedItems.join(', ')}. Current time in Warangal, Telangana, India is Sunday, May 4, 2025 at 4:35 PM IST.`;
+                        console.log('Visual Context:', visualContext);
+                        const aiResponse = await getGeminiResponse(visualContext);
+                        if (aiResponse) {
+                            responseArea.textContent = `AI: ${aiResponse}`;
+                            speakResponse(aiResponse);
+                        }
+                    } else {
+                        // Optional: A default response if nothing is detected
+                        // if (Math.random() < 0.1) {
+                        //     const aiResponse = await getGeminiResponse("The camera doesn't see anything specific right now.");
+                        //     if (aiResponse) {
+                        //         responseArea.textContent = `AI: ${aiResponse}`;
+                        //         speakResponse(aiResponse);
+                        //     }
+                        // }
+                    }
+                }
+                requestAnimationFrame(detectObjects);
+            }
+
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+
+                recognition.onresult = async (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    responseArea.textContent = `You said: ${transcript}`;
+                    const geminiResponse = await getGeminiResponse(transcript);
+                    responseArea.textContent += `\nAI: ${geminiResponse}`;
+                    speakResponse(geminiResponse);
+                };
+
+                recognition.onerror = (event) => {
+                    responseArea.textContent = `Error during speech recognition: ${event.error}`;
+                };
+
+                startVoiceButton.addEventListener('click', () => {
+                    recognition.start();
+                });
+            } else {
+                responseArea.textContent = 'Speech recognition is not supported in this browser.';
+            }
+
+            function speakResponse(text) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                window.speechSynthesis.speak(utterance);
+            }
+
+            async function getGeminiResponse(query) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{ text: query }]
+                            }]
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        console.error('Gemini API Error:', errorData);
+                        return `AI response error: ${response.statusText}`;
+                    }
+
+                    const data = await response.json();
+                    if (data && data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts.length > 0) {
+                        return data.candidates[0].content.parts[0].text;
+                    } else {
+                        return 'No response from AI.';
+                    }
+
+                } catch (error) {
+                    console.error('Error calling Gemini API:', error);
+                    return 'Failed to get response from AI.';
+                }
+            }
+
+            setupCamera();
+            loadModel();
+
+            // Online Service Worker Registration (within the script tag)
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register(
+                    URL.createObjectURL(new Blob([`
+                        const cacheName = 'ai-companion-cache-v1';
+                        const staticAssets = [
+                            './',
+                            './index.html',
+                            'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs',
+                            'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd'
+                        ];
+
+                        self.addEventListener('install', async () => {
+                            const cache = await caches.open(cacheName);
+                            await cache.addAll(staticAssets);
+                        });
+
+                        self.addEventListener('fetch', event => {
+                            event.respondWith(caches.match(event.request) || fetch(event.request));
+                        });
+                    `], { type: 'text/javascript' }))
+                );
+            }
+        });
+    </script>
+</body>
+</html>
